@@ -1,6 +1,6 @@
 # LeadLens: AI-assisted leadership assessment, with a human in the loop
 
-**The question (atrain problem 01):** How can AI make assessments faster and smarter, without losing the human judgment that makes them valuable?
+**The question:** How can AI make assessments faster and smarter, without losing the human judgment that makes them valuable?
 
 **My answer in one line:** let the AI do the first read, make it *prove* every score with evidence, measure how much it disagrees with itself, and send the uncertain parts to a human, who always makes the final call.
 

@@ -1,5 +1,7 @@
 # LeadLens: AI-assisted leadership assessment, with a human in the loop
 
+**Try it live: [leadlenss.streamlit.app](https://leadlenss.streamlit.app/)**
+
 **The question:** How can AI make assessments faster and smarter, without losing the human judgment that makes them valuable?
 
 **My answer in one line:** let the AI do the first read, make it *prove* every score with evidence, measure how much it disagrees with itself, and send the uncertain parts to a human, who always makes the final call.
@@ -23,6 +25,8 @@
 - **Human judgment stays:** the AI never sets a final score. It also says *where* it should not be trusted, so human time goes where it matters.
 
 ## Run it
+
+The easiest way is the live app: **[leadlenss.streamlit.app](https://leadlenss.streamlit.app/)**. To run it on your own computer:
 
 ```bash
 pip install -r requirements.txt

@@ -14,8 +14,10 @@ import streamlit as st
 from assessor import DEFAULT_MODEL, assess
 from demo_data import DEMO_RUNS
 from scenarios import COMPETENCIES, SCENARIOS
+import ui
 
-st.set_page_config(page_title="LeadLens – AI-assisted assessment", page_icon="🔎", layout="wide")
+st.set_page_config(page_title="LeadLens – AI-assisted assessment", page_icon="🖍️", layout="wide")
+st.markdown(ui.CSS, unsafe_allow_html=True)
 
 # ---------- state ----------
 defaults = {"step": 1, "results": None, "answer": "", "scenario_id": SCENARIOS[0]["id"], "final": None}
@@ -29,8 +31,7 @@ def go(step: int):
 
 # ---------- sidebar ----------
 with st.sidebar:
-    st.title("🔎 LeadLens")
-    st.caption("AI does the first read. A human makes the call.")
+    st.markdown("### Settings")
     secret_key = None
     try:
         secret_key = st.secrets.get("GROQ_API_KEY")
@@ -53,9 +54,6 @@ with st.sidebar:
     model = st.text_input("Model", model_default, disabled=not live,
                           help="If this model is retired, the app automatically falls back to another Groq model.")
     st.divider()
-    steps = ["1 · Candidate answer", "2 · AI assessment", "3 · Assessor review", "4 · Final report"]
-    for i, label in enumerate(steps, start=1):
-        st.markdown(f"**{label}**" if st.session_state.step == i else label)
     if st.button("Start over"):
         for k, v in defaults.items():
             st.session_state[k] = v
@@ -63,30 +61,35 @@ with st.sidebar:
 
 scenario = next(s for s in SCENARIOS if s["id"] == st.session_state.scenario_id)
 
+st.markdown(ui.masthead() + ui.stepper(st.session_state.step), unsafe_allow_html=True)
+
 # ---------- step 1: candidate ----------
 if st.session_state.step == 1:
-    st.header("1 · Candidate answer")
     titles = {s["title"]: s["id"] for s in SCENARIOS}
-    chosen = st.selectbox("Scenario", list(titles), index=list(titles.values()).index(scenario["id"]))
+    chosen = st.radio("Choose a scenario", list(titles), horizontal=True,
+                      index=list(titles.values()).index(scenario["id"]))
     if titles[chosen] != st.session_state.scenario_id:
         st.session_state.scenario_id = titles[chosen]
         st.session_state.answer = ""
         st.rerun()
-    st.info(scenario["text"])
+    st.markdown(ui.scenario_card(scenario["title"], scenario["text"]), unsafe_allow_html=True)
+    st.write("")
     if not st.session_state.answer and scenario["sample_answer"]:
         st.session_state.answer = scenario["sample_answer"]
     answer = st.text_area("Your answer", key="answer", height=220,
-                          placeholder="Write what you would do and why…")
+                          placeholder="Write what you would do in this situation, and why.")
+    words = len(answer.split())
     has_demo = scenario["id"] in DEMO_RUNS
+    st.caption(f"{words} words" + ("" if words >= 15 else " · write at least 15 to get a first read"))
     if not live and not has_demo:
-        st.warning("Demo mode has example AI output only for the first two scenarios. "
-                   "Switch to Live AI to score this one.")
+        st.warning("Demo mode has example AI output for the first two scenarios only. "
+                   "Switch to Live AI in the settings to score this one.")
     if not live and has_demo:
-        st.caption("Demo mode: scores come from prepared example output. The evidence check still runs "
-                   "against the text in the box, so editing the answer changes which quotes are verified.")
-    disabled = len(answer.split()) < 15 or (not live and not has_demo) or (live and not api_key)
-    if st.button("Get AI assessment →", type="primary", disabled=disabled):
-        with st.spinner(f"Scoring the answer {runs} time(s)…"):
+        st.caption("Demo mode uses prepared AI output. The evidence check still runs on the text above, "
+                   "so if you edit the answer, the marks change.")
+    disabled = words < 15 or (not live and not has_demo) or (live and not api_key)
+    if st.button(f"Get the AI's first read ({runs} run{'s' if runs > 1 else ''})", type="primary", disabled=disabled):
+        with st.spinner(f"The AI is reading the answer {runs} time{'s' if runs > 1 else ''}…"):
             try:
                 st.session_state.results = assess(
                     scenario["text"], answer, runs=runs, api_key=api_key, model=model,
@@ -94,74 +97,80 @@ if st.session_state.step == 1:
                 go(2)
                 st.rerun()
             except Exception as e:  # show the problem instead of crashing
-                st.error(f"The AI assessment failed: {e}")
-    if len(answer.split()) < 15:
-        st.caption("Write at least 15 words.")
+                st.error(f"The AI could not score the answer. {e}")
 
 # ---------- step 2: AI assessment ----------
 elif st.session_state.step == 2:
-    st.header("2 · AI assessment")
     results = st.session_state.results
     flagged = [r for r in results if r.needs_human]
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Competencies scored", len(results))
-    c2.metric("Need a human check", len(flagged))
-    c3.metric("AI runs per answer", len(results[0].scores))
-    used = getattr(assess, "last_model", None)
-    if live and used:
-        st.caption(f"Model used: {used}")
+    n = len(results[0].scores)
     if flagged:
-        st.warning("The AI is not reliable enough on: " + ", ".join(r.name for r in flagged)
-                   + ". These go to the assessor first.")
-    for r in sorted(results, key=lambda r: not r.needs_human):
-        with st.container(border=True):
-            left, right = st.columns([1.4, 3])
-            left.markdown(f"#### {r.name}")
-            left.metric("AI score (median)", f"{r.score} / 5")
-            left.caption("Runs: " + " · ".join(map(str, r.scores)))
-            right.markdown(f"**Why:** {r.rationale or '–'}")
-            for q in r.verified_evidence:
-                right.markdown(f"✅ Evidence found in answer: *“{q}”*")
-            for q in r.unverified_evidence:
-                right.markdown(f"❌ Quote **not** in the answer (possible AI invention): *“{q}”*")
-            for f in r.flags:
-                right.markdown(f"⚠️ {f}")
+        names = ", ".join(r.name for r in flagged)
+        st.markdown(f'<div class="ll-summary">The AI read the answer {n} times. '
+                    f'It is not reliable enough on <b>{names}</b>, so those go to the assessor first.</div>',
+                    unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div class="ll-summary ok">The AI read the answer {n} times and <b>agreed with itself</b> '
+                    f'on every competency. The assessor still makes the final call.</div>', unsafe_allow_html=True)
+    left, right = st.columns([1, 1.15], gap="large")
+    with left:
+        st.markdown("#### The answer, marked up")
+        st.markdown(ui.marked_answer(st.session_state.answer, results) + ui.legend(results),
+                    unsafe_allow_html=True)
+        st.caption("Highlighted text is the evidence the AI quoted. Every quote was checked against the answer.")
+        used = getattr(assess, "last_model", None)
+        if live and used:
+            st.caption(f"Model: {used}")
+    with right:
+        st.markdown("#### Scores and the AI's notes")
+        st.markdown("".join(ui.comp_card(r) for r in sorted(results, key=lambda r: not r.needs_human)),
+                    unsafe_allow_html=True)
     a, b = st.columns(2)
-    a.button("← Back", on_click=go, args=(1,))
-    b.button("Send to assessor review →", type="primary", on_click=go, args=(3,))
+    a.button("Back to the answer", on_click=go, args=(1,))
+    b.button("Send to assessor review", type="primary", on_click=go, args=(3,))
 
 # ---------- step 3: assessor review ----------
 elif st.session_state.step == 3:
-    st.header("3 · Assessor review")
-    st.caption("You decide. Flagged items are shown first. If you change a score, say why. "
-               "That reason is what improves the rubric and the AI over time.")
+    st.markdown('<div class="ll-summary">You decide. Flagged competencies come first. '
+                'If you change the AI\'s score, write one line on why. Those reasons are how the rubric '
+                'and the AI get better.</div>', unsafe_allow_html=True)
     results = st.session_state.results
-    with st.expander("Candidate answer", expanded=False):
-        st.write(st.session_state.answer)
+    with st.expander("Show the marked-up answer"):
+        st.markdown(ui.marked_answer(st.session_state.answer, results) + ui.legend(results),
+                    unsafe_allow_html=True)
     decisions = {}
     for r in sorted(results, key=lambda r: not r.needs_human):
         with st.container(border=True):
-            st.markdown(f"**{r.name}** — AI: {r.score} (runs {', '.join(map(str, r.scores))})"
-                        + ("  ⚠️ needs check" if r.needs_human else ""))
-            anchors = COMPETENCIES[r.key]["anchors"]
-            st.caption(" | ".join(f"{k}: {v}" for k, v in anchors.items()))
-            final = st.slider("Final score", 1, 5, int(round(r.score)), key=f"s_{r.key}")
-            reason = st.text_input("Reason (required if you change the AI score)", key=f"r_{r.key}")
+            ai = int(round(r.score))
+            top, side = st.columns([1.3, 1], gap="large")
+            with top:
+                st.markdown(f'<div class="ll-comp-name" style="border-left:8px solid {ui.HIGHLIGHT[r.key]};'
+                            f'padding-left:.6rem">{r.name}</div>', unsafe_allow_html=True)
+                final = st.slider("Your score", 1, 5, ai, key=f"s_{r.key}")
+                st.markdown(ui.strip(r.scores, human=final) + '<div class="ll-strip-cap">Dots are the AI runs (a number means several runs gave that score). '
+                            'The red marker is your score.</div>', unsafe_allow_html=True)
+            with side:
+                anchors = COMPETENCIES[r.key]["anchors"]
+                st.caption("\n\n".join(f"**{k}** · {v}" for k, v in anchors.items()))
+            reason = st.text_input("Why did you change it?" if final != ai else "Note (optional)",
+                                   key=f"r_{r.key}",
+                                   placeholder="e.g. They protect the team but offer no personal support.")
+            if r.needs_human:
+                st.markdown("".join(f'<span class="ll-flag">{f}</span>' for f in r.flags), unsafe_allow_html=True)
             decisions[r.key] = {"final": final, "reason": reason.strip()}
     missing = [COMPETENCIES[k]["name"] for k, d in decisions.items()
                if d["final"] != int(round(next(r for r in results if r.key == k).score)) and not d["reason"]]
     if missing:
         st.info("Add a reason for: " + ", ".join(missing))
     a, b = st.columns(2)
-    a.button("← Back", on_click=go, args=(2,))
-    if b.button("Finalise →", type="primary", disabled=bool(missing)):
+    a.button("Back to the AI's first read", on_click=go, args=(2,))
+    if b.button("Finalise the assessment", type="primary", disabled=bool(missing)):
         st.session_state.final = decisions
         go(4)
         st.rerun()
 
 # ---------- step 4: report ----------
 elif st.session_state.step == 4:
-    st.header("4 · Final report")
     results, final = st.session_state.results, st.session_state.final
     rows, changed = [], 0
     for r in results:
@@ -173,12 +182,25 @@ elif st.session_state.step == 4:
                      "Reason": d["reason"] or ("–" if d["final"] == ai else ""),
                      "Flags": "; ".join(r.flags) or "–"})
     total = round(sum(final[r.key]["final"] for r in results) / len(results), 2)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Overall (human final)", f"{total} / 5")
-    c2.metric("AI scores kept", f"{len(results) - changed} of {len(results)}")
-    c3.metric("Human overrides", changed)
-    st.dataframe(rows, width="stretch", hide_index=True)
-    st.caption("Every final score was confirmed by a person. The AI provided a first read, evidence and warnings.")
+    left, right = st.columns([1, 2], gap="large")
+    with left:
+        st.markdown(f'<div class="ll-big">{total:g}<small> / 5 overall</small></div>', unsafe_allow_html=True)
+        st.write("")
+        st.markdown(f"**{len(results) - changed} of {len(results)}** AI scores kept, "
+                    f"**{changed}** changed by the assessor.")
+        st.caption("Every final score was confirmed by a person. The AI gave a first read, evidence and warnings.")
+    with right:
+        for r in results:
+            d = final[r.key]
+            reason = f" — {d['reason']}" if d["reason"] else ""
+            st.markdown(f'<div class="ll-comp" style="--hl:{ui.HIGHLIGHT[r.key]};margin-bottom:.6rem">'
+                        f'<div class="ll-comp-head"><div class="ll-comp-name">{r.name}</div>'
+                        f'<div class="ll-score">{d["final"]}<small> / 5</small></div></div>'
+                        f'{ui.strip(r.scores, human=d["final"])}'
+                        f'<div class="ll-strip-cap">AI runs {", ".join(map(str, r.scores))}, '
+                        f'final {d["final"]}{reason}</div></div>', unsafe_allow_html=True)
+    with st.expander("Table view"):
+        st.dataframe(rows, width="stretch", hide_index=True)
 
     report = {
         "created": datetime.now().isoformat(timespec="seconds"),
@@ -195,4 +217,4 @@ elif st.session_state.step == 4:
     a, b, c = st.columns(3)
     a.download_button("Download report (Markdown)", "\n".join(md), "leadlens_report.md")
     b.download_button("Download data (JSON)", json.dumps(report, indent=2), "leadlens_report.json")
-    c.button("← Back to review", on_click=go, args=(3,))
+    c.button("Back to review", on_click=go, args=(3,))

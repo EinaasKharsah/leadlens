@@ -51,4 +51,3 @@ Tests: `python -m pytest -q`
 | `demo_data.py` | Example AI output for demo mode |
 | `test_assessor.py` | Tests for the checks |
 
-Built by Einaas Kharsah, with AI coding tools as the main building material. I reviewed and tested every part.

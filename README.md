@@ -30,7 +30,7 @@ streamlit run app.py
 ```
 
 - **Demo mode** works without any key. It uses prepared example AI output for the first two scenarios, built to show the checks working (one unstable competency, one invented quote).
-- **Live mode** uses a free [Groq](https://console.groq.com) API key (Llama 3.3 70B). Enter it in the sidebar, or set `GROQ_API_KEY` as an environment variable or Streamlit secret.
+- **Live mode** uses a free [Groq](https://console.groq.com) API key (default model: GPT-OSS 120B, with automatic fallback if Groq retires a model). Enter it in the sidebar, or set `GROQ_API_KEY` as an environment variable or Streamlit secret.
 
 Tests: `python -m pytest -q`
 

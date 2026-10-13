@@ -37,6 +37,8 @@ def test_live_path_with_mocked_api(monkeypatch):
     calls = []
 
     class FakeResp:
+        status_code = 200
+
         def __init__(self, score):
             self.score = score
         def raise_for_status(self):
@@ -56,3 +58,28 @@ def test_live_path_with_mocked_api(monkeypatch):
     assert len(calls) == 3
     assert res[0].scores == [4, 3, 4] and res[0].needs_human
     assert res[0].verified_evidence == ["talk to the team"]
+
+
+def test_retired_model_falls_back(monkeypatch):
+    """A 404 for a retired model makes the app try the next model instead of failing."""
+    import assessor
+    seen = []
+
+    class Resp:
+        def __init__(self, code):
+            self.status_code = code
+        def json(self):
+            body = {k: {"score": 3, "evidence": [], "rationale": "ok"}
+                    for k in ["communication", "people", "decision", "ownership"]}
+            import json as _j
+            return {"choices": [{"message": {"content": _j.dumps(body)}}]}
+
+    def fake_post(url, headers, json, timeout):
+        seen.append(json["model"])
+        return Resp(404 if json["model"] == "old-model" else 200)
+
+    monkeypatch.setattr(assessor.requests, "post", fake_post)
+    res = assessor.assess("s", "some answer text here", runs=2, api_key="x", model="old-model")
+    assert seen[0] == "old-model" and seen[1] == assessor.FALLBACK_MODELS[0]
+    assert assessor.assess.last_model == assessor.FALLBACK_MODELS[0]
+    assert len(res) == 4

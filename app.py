@@ -46,7 +46,12 @@ with st.sidebar:
                                 help="Free key at console.groq.com. It is only used for this session.")
     runs = st.slider("AI runs per answer", 1, 5, 3,
                      help="The same answer is scored several times. Disagreement between runs is a warning sign.")
-    model = st.text_input("Model", DEFAULT_MODEL, disabled=not live)
+    try:
+        model_default = st.secrets.get("GROQ_MODEL", DEFAULT_MODEL)
+    except Exception:
+        model_default = DEFAULT_MODEL
+    model = st.text_input("Model", model_default, disabled=not live,
+                          help="If this model is retired, the app automatically falls back to another Groq model.")
     st.divider()
     steps = ["1 · Candidate answer", "2 · AI assessment", "3 · Assessor review", "4 · Final report"]
     for i, label in enumerate(steps, start=1):
@@ -102,6 +107,9 @@ elif st.session_state.step == 2:
     c1.metric("Competencies scored", len(results))
     c2.metric("Need a human check", len(flagged))
     c3.metric("AI runs per answer", len(results[0].scores))
+    used = getattr(assess, "last_model", None)
+    if live and used:
+        st.caption(f"Model used: {used}")
     if flagged:
         st.warning("The AI is not reliable enough on: " + ", ".join(r.name for r in flagged)
                    + ". These go to the assessor first.")

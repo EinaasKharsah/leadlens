@@ -21,7 +21,10 @@ import requests
 from scenarios import COMPETENCIES
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
+# Tried in order if a model has been retired (Groq returns 404 for unknown models).
+FALLBACK_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "llama-3.1-8b-instant"]
 
 # A competency needs a human look when repeated runs disagree by this much or more.
 SPREAD_THRESHOLD = 1
@@ -91,21 +94,67 @@ Return ONLY valid JSON in this exact shape:
  "people": {{...}}, "decision": {{...}}, "ownership": {{...}}}}"""
 
 
-def _call_llm(prompt: str, api_key: str, model: str, temperature: float) -> dict:
-    resp = requests.post(
-        GROQ_URL,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": model,
-            "temperature": temperature,
-            "response_format": {"type": "json_object"},
-            "messages": [{"role": "user", "content": prompt}],
-        },
-        timeout=60,
-    )
-    resp.raise_for_status()
+class ModelNotFound(Exception):
+    pass
+
+
+def _post(prompt: str, api_key: str, model: str, temperature: float, json_mode: bool) -> requests.Response:
+    body = {"model": model, "temperature": temperature,
+            "messages": [{"role": "user", "content": prompt}]}
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
+    return requests.post(GROQ_URL, json=body, timeout=90,
+                         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+
+
+def _call_model(prompt: str, api_key: str, model: str, temperature: float) -> dict:
+    resp = _post(prompt, api_key, model, temperature, json_mode=True)
+    if resp.status_code == 400:
+        # Some models do not support JSON mode; the parser can handle plain text around the JSON.
+        resp = _post(prompt, api_key, model, temperature, json_mode=False)
+    if resp.status_code == 404:
+        raise ModelNotFound(model)
+    if resp.status_code >= 400:
+        try:
+            detail = resp.json().get("error", {}).get("message", resp.text)
+        except ValueError:
+            detail = resp.text
+        raise RuntimeError(f"Groq API error {resp.status_code}: {detail}")
     content = resp.json()["choices"][0]["message"]["content"]
     return parse_llm_json(content)
+
+
+def _available_models(api_key: str) -> list[str]:
+    try:
+        r = requests.get(GROQ_MODELS_URL, headers={"Authorization": f"Bearer {api_key}"}, timeout=30)
+        r.raise_for_status()
+        ids = [m["id"] for m in r.json().get("data", [])]
+    except Exception:
+        return []
+    skip = ("whisper", "guard", "tts", "playai", "orpheus", "distil")
+    return [i for i in ids if not any(x in i.lower() for x in skip)]
+
+
+def _call_llm(prompt: str, api_key: str, model: str, temperature: float) -> tuple[dict, str]:
+    """Call the model; if it has been retired, fall back to another available model.
+
+    Returns the parsed output and the model that was actually used.
+    """
+    tried = []
+    for m in [model] + [f for f in FALLBACK_MODELS if f != model]:
+        tried.append(m)
+        try:
+            return _call_model(prompt, api_key, m, temperature), m
+        except ModelNotFound:
+            continue
+    for m in _available_models(api_key):
+        if m in tried:
+            continue
+        try:
+            return _call_model(prompt, api_key, m, temperature), m
+        except ModelNotFound:
+            continue
+    raise RuntimeError("None of the Groq models are available: " + ", ".join(tried))
 
 
 def parse_llm_json(content: str) -> dict:
@@ -150,7 +199,11 @@ def assess(scenario_text: str, answer: str, runs: int = 3, api_key: str | None =
         if not key:
             raise RuntimeError("No API key. Add a Groq API key or use demo mode.")
         prompt = build_prompt(scenario_text, answer)
-        outputs = [_call_llm(prompt, key, model, temperature=0.7) for _ in range(runs)]
+        outputs = []
+        for _ in range(runs):
+            out, model = _call_llm(prompt, key, model, temperature=0.7)  # keep the model that worked
+            outputs.append(out)
+        assess.last_model = model
 
     results = []
     for key, comp in COMPETENCIES.items():

@@ -115,8 +115,8 @@ elif st.session_state.step == 2:
                    + ". These go to the assessor first.")
     for r in sorted(results, key=lambda r: not r.needs_human):
         with st.container(border=True):
-            left, right = st.columns([1, 3])
-            left.markdown(f"### {r.name}")
+            left, right = st.columns([1.4, 3])
+            left.markdown(f"#### {r.name}")
             left.metric("AI score (median)", f"{r.score} / 5")
             left.caption("Runs: " + " · ".join(map(str, r.scores)))
             right.markdown(f"**Why:** {r.rationale or '–'}")

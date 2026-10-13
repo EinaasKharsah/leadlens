@@ -20,7 +20,9 @@ st.set_page_config(page_title="LeadLens – AI-assisted assessment", page_icon="
 st.markdown(ui.CSS, unsafe_allow_html=True)
 
 # ---------- state ----------
-defaults = {"step": 1, "results": None, "answer": "", "scenario_id": SCENARIOS[0]["id"], "final": None}
+# "answer" belongs to the text box, which Streamlit clears when the box is not on screen,
+# so the submitted text is kept separately in "submitted".
+defaults = {"step": 1, "results": None, "answer": "", "submitted": "", "scenario_id": SCENARIOS[0]["id"], "final": None}
 for k, v in defaults.items():
     st.session_state.setdefault(k, v)
 
@@ -71,11 +73,12 @@ if st.session_state.step == 1:
     if titles[chosen] != st.session_state.scenario_id:
         st.session_state.scenario_id = titles[chosen]
         st.session_state.answer = ""
+        st.session_state.submitted = ""
         st.rerun()
     st.markdown(ui.scenario_card(scenario["title"], scenario["text"]), unsafe_allow_html=True)
     st.write("")
-    if not st.session_state.answer and scenario["sample_answer"]:
-        st.session_state.answer = scenario["sample_answer"]
+    if not st.session_state.answer:
+        st.session_state.answer = st.session_state.submitted or scenario["sample_answer"]
     answer = st.text_area("Your answer", key="answer", height=220,
                           placeholder="Write what you would do in this situation, and why.")
     words = len(answer.split())
@@ -91,6 +94,7 @@ if st.session_state.step == 1:
     if st.button(f"Get the AI's first read ({runs} run{'s' if runs > 1 else ''})", type="primary", disabled=disabled):
         with st.spinner(f"The AI is reading the answer {runs} time{'s' if runs > 1 else ''}…"):
             try:
+                st.session_state.submitted = answer
                 st.session_state.results = assess(
                     scenario["text"], answer, runs=runs, api_key=api_key, model=model,
                     demo_runs=None if live else DEMO_RUNS[scenario["id"]])
@@ -115,7 +119,7 @@ elif st.session_state.step == 2:
     left, right = st.columns([1, 1.15], gap="large")
     with left:
         st.markdown("#### The answer, marked up")
-        st.markdown(ui.marked_answer(st.session_state.answer, results) + ui.legend(results),
+        st.markdown(ui.marked_answer(st.session_state.submitted, results) + ui.legend(results),
                     unsafe_allow_html=True)
         st.caption("Highlighted text is the evidence the AI quoted. Every quote was checked against the answer.")
         used = getattr(assess, "last_model", None)
@@ -136,7 +140,7 @@ elif st.session_state.step == 3:
                 'and the AI get better.</div>', unsafe_allow_html=True)
     results = st.session_state.results
     with st.expander("Show the marked-up answer"):
-        st.markdown(ui.marked_answer(st.session_state.answer, results) + ui.legend(results),
+        st.markdown(ui.marked_answer(st.session_state.submitted, results) + ui.legend(results),
                     unsafe_allow_html=True)
     decisions = {}
     for r in sorted(results, key=lambda r: not r.needs_human):
@@ -205,7 +209,7 @@ elif st.session_state.step == 4:
     report = {
         "created": datetime.now().isoformat(timespec="seconds"),
         "scenario": scenario["title"],
-        "answer": st.session_state.answer,
+        "answer": st.session_state.submitted,
         "mode": "live" if live else "demo",
         "competencies": rows,
         "overall_final": total,

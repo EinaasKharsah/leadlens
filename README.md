@@ -16,6 +16,10 @@
 4. **Assessor review.** Flagged items come first. The assessor sets the final score, and must give a reason when they change the AI's score.
 5. **Report.** Final scores, AI vs. human, every override and its reason. Download as Markdown or JSON.
 
+6. **Bias Mirror (fairness check).** The answer is rewritten in three styles with exactly the same ideas (non-native English, very formal, short bullet points) and scored again. If the score changes only because of the writing style, by more than the normal run-to-run variation, the app flags it. A fair assessment should judge what a person would do, not how polished their English is.
+
+![Bias Mirror](screenshots/5_bias_mirror.png)
+
 ![AI assessment with evidence and consistency checks](screenshots/2_ai_assessment.png)
 
 ## Why it is built this way
@@ -43,7 +47,6 @@ Tests: `python -m pytest -q`
 - Test with real assessors: how often do they agree with the AI, and are the flags the right ones?
 - Compare AI and human scores on a set of real (anonymised) answers before using it for any decision.
 - Add a candidate-facing feedback view, written from the final human scores.
-- Check for bias: do scores change when only the writing style or language level changes?
 
 ## Files
 
@@ -51,6 +54,7 @@ Tests: `python -m pytest -q`
 |---|---|
 | `app.py` | Streamlit app, four steps |
 | `assessor.py` | Prompt, LLM call, output parsing, evidence and consistency checks |
+| `fairness.py` | Bias Mirror: rewrites in different styles and compares scores |
 | `scenarios.py` | Scenarios and the competency rubric |
 | `demo_data.py` | Example AI output for demo mode |
 | `test_assessor.py` | Tests for the checks |

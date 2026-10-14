@@ -86,6 +86,13 @@ h1, h2, h3, h4 {{ font-family: 'Public Sans', sans-serif !important; letter-spac
 .ll-summary b {{ color:{FLAG}; }}
 .ll-summary.ok b {{ color:#1F7A55; }}
 
+/* bias mirror */
+.ll-mirror {{ width:100%; border-collapse:separate; border-spacing:0; background:#fff; border-radius:10px; overflow:hidden; color:{INK}; }}
+.ll-mirror th {{ text-align:left; padding:.55rem .7rem; background:#E2E7EC; font-size:.9rem; }}
+.ll-mirror td {{ padding:.55rem .7rem; border-top:1px solid #E2E7EC; font-size:.95rem; }}
+.ll-mirror td.flag {{ background:rgba(179,38,78,.10); color:{FLAG}; font-weight:700; }}
+.ll-mirror .d {{ color:#7A8796; font-size:.85rem; margin-left:.3rem; }}
+
 /* report */
 .ll-big {{ font-size:3.4rem; font-weight:800; letter-spacing:-0.05em; color:{INK}; line-height:1; }}
 .ll-big small {{ font-size:1.2rem; color:#7A8796; font-weight:500; letter-spacing:0; }}
@@ -96,6 +103,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {{ outline:3px
 @media (max-width: 640px) {{ .ll-mast .name {{ font-size:2rem; }} .ll-step {{ font-size:.8rem; }} .ll-step b {{ display:block; }} }}
 </style>
 """
+
+from scenarios import COMPETENCIES as _C
+_COMP_NAMES = {k: v["name"] for k, v in _C.items()}
 
 STEP_NAMES = ["Candidate answer", "AI first read", "Assessor review", "Final report"]
 
@@ -195,3 +205,22 @@ def comp_card(r) -> str:
             f'<div class="ll-score">{r.score:g}<small> / 5</small></div></div>'
             f'{strip(r.scores)}<div class="ll-strip-cap">{strip_caption(r.scores)}</div>'
             f'<div class="ll-note">{note}</div>{bad}{flags}</div>')
+
+
+def mirror_table(rows, versions) -> str:
+    """Competencies down, writing styles across; cells where only the style moved the score are marked."""
+    head = "<th>Competency</th><th>Original</th>" + "".join(f"<th>{html.escape(v.label)}</th>" for v in versions)
+    body = []
+    for row in rows:
+        name = next(c for k, c in _COMP_NAMES.items() if k == row["key"])
+        cells = [f'<td><span style="border-left:6px solid {HIGHLIGHT[row["key"]]};padding-left:.5rem">'
+                 f'{html.escape(name)}</span></td>',
+                 f'<td>{row["original"]:g}<span class="d">runs vary by {row["noise"]}</span></td>']
+        for v in versions:
+            s = row["styles"][v.style]
+            d = f'{s["delta"]:+g}' if s["delta"] else "same"
+            cls = ' class="flag"' if s["flag"] else ""
+            cells.append(f'<td{cls}>{s["median"]:g}<span class="d">{d}</span></td>')
+        body.append("<tr>" + "".join(cells) + "</tr>")
+    return (f'<div style="overflow-x:auto"><table class="ll-mirror">'
+            f'<tr>{head}</tr>{"".join(body)}</table></div>')

@@ -12,7 +12,8 @@ from datetime import datetime
 import streamlit as st
 
 from assessor import DEFAULT_MODEL, assess
-from demo_data import DEMO_RUNS
+from demo_data import DEMO_FAIRNESS, DEMO_RUNS
+from fairness import StyleResult, compare, run_mirror
 from scenarios import COMPETENCIES, SCENARIOS
 import ui
 
@@ -22,7 +23,8 @@ st.markdown(ui.CSS, unsafe_allow_html=True)
 # ---------- state ----------
 # "answer" belongs to the text box, which Streamlit clears when the box is not on screen,
 # so the submitted text is kept separately in "submitted".
-defaults = {"step": 1, "results": None, "answer": "", "submitted": "", "scenario_id": SCENARIOS[0]["id"], "final": None}
+defaults = {"step": 1, "results": None, "answer": "", "submitted": "", "scenario_id": SCENARIOS[0]["id"], "final": None,
+            "mirror": None}
 for k, v in defaults.items():
     st.session_state.setdefault(k, v)
 
@@ -95,6 +97,7 @@ if st.session_state.step == 1:
         with st.spinner(f"The AI is reading the answer {runs} time{'s' if runs > 1 else ''}…"):
             try:
                 st.session_state.submitted = answer
+                st.session_state.mirror = None
                 st.session_state.results = assess(
                     scenario["text"], answer, runs=runs, api_key=api_key, model=model,
                     demo_runs=None if live else DEMO_RUNS[scenario["id"]])
@@ -129,6 +132,46 @@ elif st.session_state.step == 2:
         st.markdown("#### Scores and the AI's notes")
         st.markdown("".join(ui.comp_card(r) for r in sorted(results, key=lambda r: not r.needs_human)),
                     unsafe_allow_html=True)
+    st.markdown("#### Bias Mirror: does writing style change the score?")
+    st.caption("A fair assessment should judge what the candidate would do, not how well they write English. "
+               "The answer is rewritten in three styles with exactly the same ideas, and scored again.")
+    can_demo = scenario["id"] in DEMO_FAIRNESS
+    if st.session_state.mirror is None:
+        if not live and not can_demo:
+            st.caption("Demo mode has an example fairness check for the first scenario only.")
+        elif st.button("Run the fairness check", disabled=live and not api_key):
+            with st.spinner("Rewriting the answer in three styles and scoring each one…"):
+                try:
+                    if live:
+                        st.session_state.mirror = run_mirror(scenario["text"], st.session_state.submitted,
+                                                             n, api_key, model)
+                    else:
+                        st.session_state.mirror = [StyleResult(**d) for d in DEMO_FAIRNESS[scenario["id"]]]
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"The fairness check could not run. {e}")
+    if st.session_state.mirror:
+        versions = st.session_state.mirror
+        rows = compare({r.key: r.scores for r in results}, versions)
+        hits = [(r, v) for r in rows for v in versions if r["styles"][v.style]["flag"]]
+        if hits:
+            parts = [f'{COMPETENCIES[r["key"]]["name"]} in the {v.label} version '
+                     f'({r["styles"][v.style]["delta"]:+g})' for r, v in hits]
+            st.markdown(f'<div class="ll-summary">Writing style alone changed the score: '
+                        f'<b>{"; ".join(parts)}</b>. The content was the same, so this is a fairness '
+                        f'problem to fix in the rubric or the prompt before real use.</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="ll-summary ok">Writing style did <b>not</b> change any score beyond normal '
+                        'run-to-run variation.</div>', unsafe_allow_html=True)
+        st.markdown(ui.mirror_table(rows, versions), unsafe_allow_html=True)
+        st.caption("Each number is the median over the same number of AI runs as the original. A change is "
+                   "flagged only if it is at least 1 point and bigger than how much the original's runs varied."
+                   + ("" if live else " Demo mode uses prepared example scores."))
+        with st.expander("Read the rewritten versions"):
+            for v in versions:
+                st.markdown(f"**{v.label}**")
+                st.text(v.text)
+    st.write("")
     a, b = st.columns(2)
     a.button("Back to the answer", on_click=go, args=(1,))
     b.button("Send to assessor review", type="primary", on_click=go, args=(3,))
@@ -214,6 +257,8 @@ elif st.session_state.step == 4:
         "competencies": rows,
         "overall_final": total,
     }
+    if st.session_state.mirror:
+        report["fairness_check"] = compare({r.key: r.scores for r in results}, st.session_state.mirror)
     md = [f"# LeadLens report – {scenario['title']}", "", f"Overall (human final): **{total} / 5**", "",
           "| Competency | AI | Runs | Final | Reason |", "|---|---|---|---|---|"]
     md += [f"| {r['Competency']} | {r['AI score']} | {r['AI runs']} | {r['Final (human)']} | {r['Reason']} |"

@@ -14,6 +14,7 @@ import json
 import os
 import re
 import statistics
+import time
 from dataclasses import dataclass, field
 
 import requests
@@ -103,8 +104,30 @@ def _post(prompt: str, api_key: str, model: str, temperature: float, json_mode: 
             "messages": [{"role": "user", "content": prompt}]}
     if json_mode:
         body["response_format"] = {"type": "json_object"}
-    return requests.post(GROQ_URL, json=body, timeout=90,
-                         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+    send = lambda: requests.post(GROQ_URL, json=body, timeout=90,
+                                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+    resp = send()
+    attempt = 0
+    while resp.status_code == 429 and attempt < MAX_RATE_RETRIES:
+        # Free Groq accounts have a tokens-per-minute limit: wait as Groq suggests, then try again.
+        time.sleep(_wait_seconds(resp, attempt))
+        attempt += 1
+        resp = send()
+    return resp
+
+
+MAX_RATE_RETRIES = 6
+
+
+def _wait_seconds(resp, attempt: int) -> float:
+    hint = resp.headers.get("retry-after") if getattr(resp, "headers", None) else None
+    if not hint:
+        m = re.search(r"try again in ([0-9.]+)s", getattr(resp, "text", "") or "")
+        hint = m.group(1) if m else None
+    try:
+        return min(float(hint) + 0.5, 60.0)
+    except (TypeError, ValueError):
+        return min(2.0 * (2 ** attempt), 60.0)
 
 
 def _call_model(prompt: str, api_key: str, model: str, temperature: float) -> dict:

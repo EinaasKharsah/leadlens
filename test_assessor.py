@@ -83,3 +83,57 @@ def test_retired_model_falls_back(monkeypatch):
     assert seen[0] == "old-model" and seen[1] == assessor.FALLBACK_MODELS[0]
     assert assessor.assess.last_model == assessor.FALLBACK_MODELS[0]
     assert len(res) == 4
+
+
+def test_bias_mirror_flags_style_effect_only_beyond_noise():
+    from demo_data import DEMO_FAIRNESS
+    from fairness import StyleResult, compare
+    original = {k: [run[k]["score"] for run in DEMO_RUNS["missed_deadline"]]
+                for k in ["communication", "people", "decision", "ownership"]}
+    versions = [StyleResult(**d) for d in DEMO_FAIRNESS["missed_deadline"]]
+    rows = {r["key"]: r for r in compare(original, versions)}
+    # Non-native wording drops communication from 5 to 3 although the runs never varied: flagged.
+    assert rows["communication"]["styles"]["non_native"] == {"median": 3, "delta": -2, "flag": True}
+    # People focus varies by 2 between runs anyway, so small changes there are not flagged.
+    assert rows["people"]["noise"] == 2
+    assert not any(s["flag"] for s in rows["people"]["styles"].values())
+
+
+def test_rewrite_falls_back_when_model_retired(monkeypatch):
+    import assessor, fairness
+
+    class Resp:
+        def __init__(self, code):
+            self.status_code = code
+            self.text = ""
+        def json(self):
+            return {"choices": [{"message": {"content": " rewritten "}}]}
+
+    seen = []
+    monkeypatch.setattr(assessor.requests, "post",
+                        lambda url, json, timeout, headers: seen.append(json["model"]) or
+                        Resp(404 if json["model"] == "old" else 200))
+    assert fairness.rewrite("text", "formal", "k", "old") == "rewritten"
+    assert seen[:2] == ["old", assessor.FALLBACK_MODELS[0]]
+
+
+def test_waits_and_retries_on_rate_limit(monkeypatch):
+    import assessor
+
+    class Resp:
+        def __init__(self, code):
+            self.status_code = code
+            self.headers = {"retry-after": "3"} if code == 429 else {}
+            self.text = ""
+        def json(self):
+            body = {k: {"score": 3, "evidence": [], "rationale": "ok"}
+                    for k in ["communication", "people", "decision", "ownership"]}
+            import json as _j
+            return {"choices": [{"message": {"content": _j.dumps(body)}}]}
+
+    codes = iter([429, 200])
+    slept = []
+    monkeypatch.setattr(assessor.requests, "post", lambda url, json, timeout, headers: Resp(next(codes)))
+    monkeypatch.setattr(assessor.time, "sleep", lambda s: slept.append(s))
+    res = assessor.assess("s", "some answer text here", runs=1, api_key="x")
+    assert slept == [3.5] and len(res) == 4

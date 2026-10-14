@@ -70,3 +70,41 @@ DEMO_RUNS = {
         },
     ],
 }
+
+
+# ---------- Bias Mirror (fairness check) demo ----------
+# The sample answer to "The missed deadline", rewritten in three styles with the same content,
+# with example scores. The non-native version shows the effect the check is built to catch.
+DEMO_FAIRNESS = {
+    "missed_deadline": [
+        {"style": "non_native", "label": "Non-native English",
+         "text": ("First I sit with the senior colleague to understand what exactly is missing and why, without "
+                  "to blame anybody. Then I look the options: make the scope smaller for this delivery, ask short "
+                  "extension, or move one person from other task. I will not ask the two tired colleagues for more "
+                  "overtime. In the afternoon I tell my manager honest what happened, the options and my "
+                  "recommendation, to deliver the most important part on time and agree new date for the rest. I "
+                  "call the client myself before deadline, explain the plan and confirm what they get. After, I make "
+                  "short team retrospective so we see risks earlier next time."),
+         "scores": {"communication": [3, 3, 4], "people": [4, 3, 4], "decision": [4, 4, 4], "ownership": [4, 4, 4]}},
+        {"style": "formal", "label": "Very formal",
+         "text": ("Initially, I would meet with the senior team member to establish precisely which components are "
+                  "outstanding and the reasons for the delay, without attributing blame. Subsequently, I would "
+                  "evaluate the available options: reducing the scope of this delivery, requesting a brief "
+                  "extension, or reallocating one team member from another task. I would refrain from requesting "
+                  "further overtime from the two exhausted colleagues. This afternoon, I would inform my manager "
+                  "candidly of the situation, the options and my recommendation, namely to deliver the most critical "
+                  "component on schedule and agree a revised date for the remainder. I would personally contact the "
+                  "client prior to the deadline to explain the plan and confirm the deliverables. Thereafter, I would "
+                  "conduct a brief team retrospective to identify risks earlier in future."),
+         "scores": {"communication": [5, 5, 5], "people": [4, 4, 3], "decision": [4, 4, 4], "ownership": [4, 4, 4]}},
+        {"style": "bullets", "label": "Short bullet points",
+         "text": ("- Talk to the senior team member: what is missing and why, no blame\n"
+                  "- Options: smaller scope, short extension, or move one person from another task\n"
+                  "- No more overtime for the two exhausted colleagues\n"
+                  "- This afternoon: tell my manager honestly, with options and my recommendation "
+                  "(deliver the key part on time, new date for the rest)\n"
+                  "- Call the client myself before the deadline and confirm what they will receive\n"
+                  "- Afterwards: short team retrospective to spot risks earlier"),
+         "scores": {"communication": [5, 4, 5], "people": [4, 4, 4], "decision": [4, 4, 4], "ownership": [4, 4, 4]}},
+    ],
+}
